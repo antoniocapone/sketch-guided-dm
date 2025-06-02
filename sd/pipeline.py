@@ -3,6 +3,7 @@ import numpy as np
 from tqdm import tqdm
 from ddpm import DDPMSampler
 from lgp.lgp import LGP
+from torch.functional import F
 
 WIDTH = 512
 HEIGHT = 512
@@ -23,6 +24,7 @@ def generate(
     device=None,
     idle_device=None,
     tokenizer=None,
+    sketch=None
 ):
     with torch.no_grad():
         if not 0 < strength <= 1:
@@ -42,8 +44,6 @@ def generate(
 
         clip = models["clip"]
         clip.to(device)
-
-        # lgp : LGP = models["lgp"]
 
         if do_cfg:
             # Convert into a list of length Seq_Len=77
@@ -114,6 +114,30 @@ def generate(
             # (Batch_Size, 4, Latents_Height, Latents_Width)
             latents = torch.randn(latents_shape, generator=generator, device=device)
 
+        encoded_sketch = None
+
+        # Sketch encoding
+        if sketch:
+            encoder = models["encoder"]
+            encoder.to(device)
+
+            input_sketch_tensor = sketch.resize((WIDTH, HEIGHT))
+            # (Height, Width, Channel)
+            input_sketch_tensor = np.array(input_sketch_tensor)
+            # (Height, Width, Channel) -> (Height, Width, Channel)
+            input_sketch_tensor = torch.tensor(input_sketch_tensor, dtype=torch.float32, device=device)
+            # (Height, Width, Channel) -> (Height, Width, Channel)
+            input_sketch_tensor = rescale(input_sketch_tensor, (0, 255), (-1, 1))
+            # (Height, Width, Channel) -> (Batch_Size, Height, Width, Channel)
+            input_sketch_tensor = input_sketch_tensor.unsqueeze(0)
+            # (Batch_Size, Height, Width, Channel) -> (Batch_Size, Channel, Height, Width)
+            input_sketch_tensor = input_sketch_tensor.permute(0, 3, 1, 2)
+
+            # (Batch_Size, 4, Latents_Height, Latents_Width)
+            encoder_noise = torch.randn(latents_shape, generator=generator, device=device)
+            # (Batch_Size, 4, Latents_Height, Latents_Width)
+            encoded_sketch = encoder(input_sketch_tensor, encoder_noise)
+
         diffusion = models["diffusion"]
         diffusion.to(device)
 
@@ -125,20 +149,30 @@ def generate(
             # (Batch_Size, 4, Latents_Height, Latents_Width)
             model_input = latents
 
+            if sketch:
+                z_t = latents
+
             if do_cfg:
                 # (Batch_Size, 4, Latents_Height, Latents_Width) -> (2 * Batch_Size, 4, Latents_Height, Latents_Width)
                 model_input = model_input.repeat(2, 1, 1, 1)
 
             # model_output is the predicted noise
             # (Batch_Size, 4, Latents_Height, Latents_Width) -> (Batch_Size, 4, Latents_Height, Latents_Width)
-            model_output = diffusion(model_input, context, time_embedding)
+            model_output, grad = diffusion(model_input, context, time_embedding, encoded_sketch)
 
             if do_cfg:
                 output_cond, output_uncond = model_output.chunk(2)
                 model_output = cfg_scale * (output_cond - output_uncond) + output_uncond
 
             # (Batch_Size, 4, Latents_Height, Latents_Width) -> (Batch_Size, 4, Latents_Height, Latents_Width)
-            latents = sampler.step(timestep, latents, model_output)
+            latents = sampler.step(timestep, latents, model_output) # this is z_t-1
+
+            if sketch:
+                beta = 1.6 # value from paper
+
+                alpha = (F.mse_loss(latents, z_t) / (grad.norm() ** 2)) * beta
+
+                latents = latents - alpha * grad
 
         to_idle(diffusion)
 
@@ -153,7 +187,7 @@ def generate(
         images = images.permute(0, 2, 3, 1)
         images = images.to("cpu", torch.uint8).numpy()
         return images[0]
-    
+
 def rescale(x, old_range, new_range, clamp=False):
     old_min, old_max = old_range
     new_min, new_max = new_range

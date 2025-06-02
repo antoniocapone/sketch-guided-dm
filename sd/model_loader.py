@@ -18,11 +18,14 @@ def preload_models_from_standard_weights(ckpt_path, device):
 
     # Creates LGP instance and load pre-trained weights
     lgp = LGP(output_dim=4, input_dim=7080, num_encodings=9).to(device)
-    lgp_checkpoint = torch.load("../lgp/SDv1.5-trained_LGP.pt", map_location=device)
+    lgp_checkpoint = torch.load("./lgp/SDv1.5-trained_LGP.pt", map_location=device)
     lgp.load_state_dict(lgp_checkpoint["model_state_dict"], strict=True)
 
     diffusion = Diffusion(lgp=lgp).to(device)
-    diffusion.load_state_dict(state_dict['diffusion'], strict=True)
+    filtered_diffusion_state_dict = {
+        k: v for k, v in state_dict['diffusion'].items() if not k.startswith("lgp.")
+    }
+    diffusion.load_state_dict(filtered_diffusion_state_dict, strict=False)
 
     clip = CLIP().to(device)
     clip.load_state_dict(state_dict['clip'], strict=True)

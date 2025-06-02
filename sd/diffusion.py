@@ -3,6 +3,7 @@ from torch import nn
 from torch.nn import functional as F
 from attention import SelfAttention, CrossAttention
 from lgp.lgp import LGP
+from typing import List, Optional
 
 class TimeEmbedding(nn.Module):
     def __init__(self, n_embd):
@@ -39,7 +40,7 @@ class UNET_ResidualBlock(nn.Module):
         else:
             self.residual_layer = nn.Conv2d(in_channels, out_channels, kernel_size=1, padding=0)
 
-    def forward(self, feature, time):
+    def forward(self, feature, time, dummy=None): # TODO: find a way to remove this dummy
         # feature: (Batch_Size, In_Channels, Height, Width)
         # time: (1, 1280)
 
@@ -284,24 +285,52 @@ class UNET(nn.Module):
             SwitchSequential(UNET_ResidualBlock(640, 320), UNET_AttentionBlock(8, 40)),
         ])
 
+    def set_to_extract(self, to_extract: List[int]):
+        self.return_activations = to_extract[:] if to_extract else None
+
     def forward(self, x, context, time):
-        # x: (Batch_Size, 4, Height / 8, Width / 8)
+        # x: (Batch_Size, 4, H/8, W/8)
         # context: (Batch_Size, Seq_Len, Dim) 
         # time: (1, 1280)
+        # return_activations: lista di indici (0-10 encoder, 11-13 bottleneck, 14-25 decoder)
 
+        activations = {}
         skip_connections = []
+        layer_idx = 0
+
+        # Encoder
         for layers in self.encoders:
             x = layers(x, context, time)
             skip_connections.append(x)
+            if self.return_activations and layer_idx in self.return_activations:
+                activations[layer_idx] = x.detach().float()
+            layer_idx += 1
 
-        x = self.bottleneck(x, context, time)
+        # Bottleneck
+        for block in self.bottleneck:
+            if isinstance(block, UNET_AttentionBlock):
+                x = block(x, context)
+            elif isinstance(block, UNET_ResidualBlock):
+                x = block(x, time)
+            else:
+                x = block(x)
+            if self.return_activations and layer_idx in self.return_activations:
+                activations[layer_idx] = x.detach().float()
+            layer_idx += 1
 
+        # Decoder
         for layers in self.decoders:
-            # Since we always concat with the skip connection of the encoder, the number of features increases before being sent to the decoder's layer
-            x = torch.cat((x, skip_connections.pop()), dim=1) 
+            x = torch.cat((x, skip_connections.pop()), dim=1)
             x = layers(x, context, time)
+            if self.return_activations and layer_idx in self.return_activations:
+                activations[layer_idx] = x.detach().float()
+            layer_idx += 1
 
-        return x
+        if self.return_activations:
+            # Ordiniamo in base all'indice richiesto
+            return (x, [activations[i] for i in sorted(self.return_activations)])
+        else:
+            return (x, None)
 
 
 class UNET_OutputLayer(nn.Module):
@@ -325,6 +354,11 @@ class UNET_OutputLayer(nn.Module):
         # (Batch_Size, 4, Height / 8, Width / 8) 
         return x
 
+def resize_and_concatenate(activations: List[torch.Tensor], reference: torch.Tensor) -> torch.Tensor:
+    size = reference.shape[2:]
+    resized = [nn.functional.interpolate(a[:1].transpose(1, 3), size=size, mode="bilinear") for a in activations]
+    return torch.cat(resized, dim=3)
+
 class Diffusion(nn.Module):
     def __init__(self, lgp):
         super().__init__()
@@ -333,19 +367,36 @@ class Diffusion(nn.Module):
         self.final = UNET_OutputLayer(320, 4)
         self.lgp = lgp
 
-    def forward(self, latent, context, time):
+    def forward(self, latent, context, time, encoded_sketch):
         # latent: (Batch_Size, 4, Height / 8, Width / 8)
         # context: (Batch_Size, Seq_Len, Dim)
         # time: (1, 320)
 
+        if encoded_sketch:
+            latent = latent.detach().requires_grad_()
+
+        to_be_extracted = [2, 4, 8, 11, 12, 13, 16, 18, 20] if encoded_sketch else None
+
         # (1, 320) -> (1, 1280)
         time = self.time_embedding(time)
 
+        self.unet.set_to_extract(to_extract=to_be_extracted)
+
         # (Batch, 4, Height / 8, Width / 8) -> (Batch, 320, Height / 8, Width / 8)
-        output = self.unet(latent, context, time) # TODO: modify UNET for returning intermediate latent features
+        output, intermediate = self.unet(latent, context, time)
+
+        grad = None
+
+        if encoded_sketch:
+            lgp_input = resize_and_concatenate(intermediate, encoded_sketch)
+
+            lgp_prediction = self.lgp(lgp_input, time)
+
+            mse = F.mse_loss(lgp_prediction, encoded_sketch)
+
+            grad = torch.autograd.grad(mse, latent, create_graph=False)[0]
 
         # (Batch, 320, Height / 8, Width / 8) -> (Batch, 4, Height / 8, Width / 8)
         output = self.final(output)
 
-        # (Batch, 4, Height / 8, Width / 8)
-        return output
+        return (output, grad)
