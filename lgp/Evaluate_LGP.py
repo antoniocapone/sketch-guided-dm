@@ -9,6 +9,7 @@ from typing import List
 import math
 from tqdm import tqdm
 import os
+from lgp import latent_guidance_predictor
 
 parser = argparse.ArgumentParser(description= "Encode images")
 parser.add_argument("--caption", type=str, help="image caption")
