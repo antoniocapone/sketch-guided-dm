@@ -2,6 +2,7 @@ import torch
 import numpy as np
 from tqdm import tqdm
 from ddpm import DDPMSampler
+from lgp.lgp import LGP
 
 WIDTH = 512
 HEIGHT = 512
@@ -41,7 +42,9 @@ def generate(
 
         clip = models["clip"]
         clip.to(device)
-        
+
+        # lgp : LGP = models["lgp"]
+
         if do_cfg:
             # Convert into a list of length Seq_Len=77
             cond_tokens = tokenizer.batch_encode_plus(

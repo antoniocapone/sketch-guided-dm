@@ -2,9 +2,9 @@ import torch
 from torch import nn
 import math
 
-class latent_guidance_predictor(nn.Module):
+class LGP(nn.Module):
     def __init__(self, output_dim, input_dim, num_encodings):
-        super(latent_guidance_predictor, self).__init__()
+        super(LGP, self).__init__()
         self.num_encodings = num_encodings
 
         self.layers = nn.Sequential(

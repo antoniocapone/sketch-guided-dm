@@ -2,6 +2,8 @@ from clip import CLIP
 from encoder import VAE_Encoder
 from decoder import VAE_Decoder
 from diffusion import Diffusion
+from lgp.lgp import LGP
+import torch
 
 import model_converter
 
@@ -14,11 +16,17 @@ def preload_models_from_standard_weights(ckpt_path, device):
     decoder = VAE_Decoder().to(device)
     decoder.load_state_dict(state_dict['decoder'], strict=True)
 
-    diffusion = Diffusion().to(device)
+    # Creates LGP instance and load pre-trained weights
+    lgp = LGP(output_dim=4, input_dim=7080, num_encodings=9).to(device)
+    lgp_checkpoint = torch.load("../lgp/SDv1.5-trained_LGP.pt", map_location=device)
+    lgp.load_state_dict(lgp_checkpoint["model_state_dict"], strict=True)
+
+    diffusion = Diffusion(lgp=lgp).to(device)
     diffusion.load_state_dict(state_dict['diffusion'], strict=True)
 
     clip = CLIP().to(device)
     clip.load_state_dict(state_dict['clip'], strict=True)
+
 
     return {
         'clip': clip,

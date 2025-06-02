@@ -14,7 +14,7 @@ import torch.nn.functional as F
 from diffusers import AutoencoderKL, UNet2DConditionModel, PNDMScheduler
 from transformers import CLIPTextModel, CLIPTokenizer
 
-from lgp import latent_guidance_predictor
+from lgp import LGP
 
 
 # ──────────────────────── Argparser ────────────────────────
@@ -147,7 +147,7 @@ if __name__ == "__main__":
     dataset = LGPDataset(args.dataset_dir, args.edge_maps_dir)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
-    model = latent_guidance_predictor(output_dim=4, input_dim=7080, num_encodings=9).to(device)
+    model = LGP(output_dim=4, input_dim=7080, num_encodings=9).to(device)
     model.init_weights()
     model.train()
 

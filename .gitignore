@@ -163,3 +163,6 @@ data/
 images/
 
 .DS_Store
+
+# PyTorch weights files
+*.pt
