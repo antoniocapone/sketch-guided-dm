@@ -166,3 +166,7 @@ images/
 
 # PyTorch weights files
 *.pt
+
+# Images
+*.png
+*.jpeg
