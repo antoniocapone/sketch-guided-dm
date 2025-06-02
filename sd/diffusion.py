@@ -355,9 +355,15 @@ class UNET_OutputLayer(nn.Module):
         return x
 
 def resize_and_concatenate(activations: List[torch.Tensor], reference: torch.Tensor) -> torch.Tensor:
-    size = reference.shape[2:]
-    resized = [nn.functional.interpolate(a[:1].transpose(1, 3), size=size, mode="bilinear") for a in activations]
-    return torch.cat(resized, dim=3)
+    size = reference.shape[2:]  # altezza e larghezza target, ad esempio (64, 64)
+
+    # Ridimensiona ogni attivazione (tenendo batch e canali) alle dimensioni di 'reference'
+    resized = [F.interpolate(a, size=size, mode="bilinear", align_corners=False) for a in activations]
+
+    # Concatena lungo la dimensione dei canali (dim=1)
+    concatenated = torch.cat(resized, dim=1)
+
+    return concatenated
 
 class Diffusion(nn.Module):
     def __init__(self, lgp):
@@ -372,10 +378,10 @@ class Diffusion(nn.Module):
         # context: (Batch_Size, Seq_Len, Dim)
         # time: (1, 320)
 
-        if encoded_sketch:
+        if encoded_sketch is not None:
             latent = latent.detach().requires_grad_()
 
-        to_be_extracted = [2, 4, 8, 11, 12, 13, 16, 18, 20] if encoded_sketch else None
+        to_be_extracted = [2, 4, 8, 11, 12, 13, 16, 18, 20] if encoded_sketch is not None else None
 
         # (1, 320) -> (1, 1280)
         time = self.time_embedding(time)
@@ -387,7 +393,7 @@ class Diffusion(nn.Module):
 
         grad = None
 
-        if encoded_sketch:
+        if encoded_sketch is not None:
             lgp_input = resize_and_concatenate(intermediate, encoded_sketch)
 
             lgp_prediction = self.lgp(lgp_input, time)

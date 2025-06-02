@@ -122,8 +122,10 @@ def generate(
             encoder.to(device)
 
             input_sketch_tensor = sketch.resize((WIDTH, HEIGHT))
-            # (Height, Width, Channel)
+            # (Height, Width)
             input_sketch_tensor = np.array(input_sketch_tensor)
+            # (Height, Width, Channel)
+            input_sketch_tensor = np.stack([input_sketch_tensor, input_sketch_tensor, input_sketch_tensor], -1) # according to the paper
             # (Height, Width, Channel) -> (Height, Width, Channel)
             input_sketch_tensor = torch.tensor(input_sketch_tensor, dtype=torch.float32, device=device)
             # (Height, Width, Channel) -> (Height, Width, Channel)

@@ -1,6 +1,7 @@
 import torch
 from torch import nn
 import math
+import numpy as np
 
 class LGP(nn.Module):
     def __init__(self, output_dim, input_dim, num_encodings):
@@ -45,9 +46,11 @@ class LGP(nn.Module):
 
         self.apply(init_func)
 
+    # t (1, 1280)
     def forward(self, x, t):
         # Concatenate input pixels with noise level t and positional encodings
         pos_encoding = [torch.sin(2 * math.pi * t * (2 **-l)) for l in range(self.num_encodings)]
+        print(np.array(pos_encoding).shape)
         pos_encoding = torch.cat(pos_encoding, dim=4)
         x = torch.cat((x, t, pos_encoding), dim=4)
         x = x.flatten(start_dim=0, end_dim=3)
