@@ -40,7 +40,7 @@ class UNET_ResidualBlock(nn.Module):
         else:
             self.residual_layer = nn.Conv2d(in_channels, out_channels, kernel_size=1, padding=0)
 
-    def forward(self, feature, time, dummy=None): # TODO: find a way to remove this dummy
+    def forward(self, feature, time):
         # feature: (Batch_Size, In_Channels, Height, Width)
         # time: (1, 1280)
 
@@ -393,16 +393,19 @@ class Diffusion(nn.Module):
 
         grad = None
 
+        # (Batch, 320, Height / 8, Width / 8) -> (Batch, 4, Height / 8, Width / 8)
+        output = self.final(output)
+
         if encoded_sketch is not None:
             lgp_input = resize_and_concatenate(intermediate, encoded_sketch)
 
-            lgp_prediction = self.lgp(lgp_input, time)
+            B, C, H, W = lgp_input.shape
+
+            # Canale come ultima dimensione
+            lgp_prediction = self.lgp(lgp_input.transpose(1, 3), output.transpose(1, 3))
 
             mse = F.mse_loss(lgp_prediction, encoded_sketch)
 
             grad = torch.autograd.grad(mse, latent, create_graph=False)[0]
-
-        # (Batch, 320, Height / 8, Width / 8) -> (Batch, 4, Height / 8, Width / 8)
-        output = self.final(output)
 
         return (output, grad)
