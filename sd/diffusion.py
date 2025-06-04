@@ -360,6 +360,8 @@ def resize_and_concatenate(activations: List[torch.Tensor], reference: torch.Ten
     # Ridimensiona ogni attivazione (tenendo batch e canali) alle dimensioni di 'reference'
     resized = [F.interpolate(a, size=size, mode="bilinear", align_corners=False) for a in activations]
 
+    # BATCH, CANALI, HEIGHT, WIDTH
+
     # Concatena lungo la dimensione dei canali (dim=1)
     concatenated = torch.cat(resized, dim=1)
 
@@ -379,7 +381,7 @@ class Diffusion(nn.Module):
         # time: (1, 320)
 
         if encoded_sketch is not None:
-            latent = latent.detach().requires_grad_()
+            latent = latent.detach().clone().requires_grad_(True)
 
         to_be_extracted = [2, 4, 8, 11, 12, 13, 16, 18, 20] if encoded_sketch is not None else None
 
@@ -397,13 +399,15 @@ class Diffusion(nn.Module):
         output = self.final(output)
 
         if encoded_sketch is not None:
-            lgp_input = resize_and_concatenate(intermediate, encoded_sketch)
+            lgp_input = resize_and_concatenate(intermediate, latent)
 
             B, C, H, W = lgp_input.shape
-
             # Canale come ultima dimensione
-            lgp_prediction = self.lgp(lgp_input.transpose(1, 3), output.transpose(1, 3))
-
+            lgp_prediction = self.lgp(lgp_input, output)
+            lgp_prediction = lgp_prediction.contiguous().view(2, 64, 64, 4)
+            lgp_prediction = lgp_prediction.transpose(1,3)
+            print(f"shape lgp_prediction: {lgp_prediction.shape}")
+            print(f"shape sketch_prediction: {encoded_sketch.shape}")
             mse = F.mse_loss(lgp_prediction, encoded_sketch)
 
             grad = torch.autograd.grad(mse, latent, create_graph=False)[0]

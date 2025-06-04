@@ -2,6 +2,7 @@ import torch
 from torch import nn
 import math
 import numpy as np
+from einops import rearrange
 
 class LGP(nn.Module):
     def __init__(self, output_dim, input_dim, num_encodings):
@@ -47,15 +48,28 @@ class LGP(nn.Module):
         self.apply(init_func)
 
     def forward(self, x, t):
-        # Concatenate input pixels with noise level t and positional encodings
-        pos_encoding = [torch.sin(2 * math.pi * t * (2 **-l)) for l in range(self.num_encodings)]
-        print(f"pos encoding shape: {np.array(pos_encoding).shape}")
-        pos_encoding = torch.cat(pos_encoding, dim=-1)
-        print(f"x shape: {x.shape}")
-        print(f"t shape: {t.shape}")
-        print(f"pos encoding shape: {pos_encoding.shape}")
-        x = torch.cat((x, t, pos_encoding), dim=-1)
-        print(x.shape)
-        x = x.flatten(start_dim=0, end_dim=3)
 
-        return self.layers(x)
+        # x: (batch_size, channels, height / 8, width / 8)      latent_image
+        # t: (batch_size, channels, height / 8, width / 8)      predicted_noise
+
+        # lista di tensori 4-dimensionali
+        pos_elem = [torch.sin(2 * math.pi * t * (2 **-l)) for l in range(self.num_encodings)]
+
+        print(np.array(pos_elem).shape)
+
+        # ([2, 36, 64, 64]): batch_size, channels, height / 8, width / 8
+        pos_encoding = torch.cat(pos_elem, dim=1)
+
+        print(pos_encoding.shape)
+        
+        # concateno immagine latente, rumore predetto ed encoding posizionale lungo la dimensione dei canali
+        x = torch.cat((x, t, pos_encoding), dim=1)
+
+        # permuto le dimensioni in modo da poter isolare il numero di canali e preparare i dati per il layer lineare
+
+        x = x.permute(0, 2, 3, 1)
+
+        x = x.flatten(start_dim = 0, end_dim = 2)
+        
+        return self.layers(x[:, :7080])
+    

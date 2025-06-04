@@ -4,6 +4,7 @@ from decoder import VAE_Decoder
 from diffusion import Diffusion
 from lgp.lgp import LGP
 import torch
+from einops import rearrange
 
 import model_converter
 
