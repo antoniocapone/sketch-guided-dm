@@ -26,6 +26,7 @@ class TimeEmbedding(nn.Module):
         return x
 
 class UNET_ResidualBlock(nn.Module):
+    
     def __init__(self, in_channels, out_channels, n_time=1280):
         super().__init__()
         self.groupnorm_feature = nn.GroupNorm(32, in_channels)
@@ -406,8 +407,10 @@ class Diffusion(nn.Module):
             lgp_prediction = self.lgp(lgp_input, output)
             lgp_prediction = lgp_prediction.contiguous().view(2, 64, 64, 4)
             lgp_prediction = lgp_prediction.transpose(1,3)
+
             print(f"shape lgp_prediction: {lgp_prediction.shape}")
             print(f"shape sketch_prediction: {encoded_sketch.shape}")
+
             mse = F.mse_loss(lgp_prediction, encoded_sketch)
 
             grad = torch.autograd.grad(mse, latent, create_graph=False)[0]
